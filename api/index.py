@@ -791,10 +791,12 @@ async def _proxy_to_old_core(body: AgentMessageBody) -> dict[str, Any]:
     base = env("OLD_CORE_URL").rstrip("/")
     if not base:
         raise HTTPException(503, "Tenant not served by Core V2 and no Old Core fallback configured")
+    if base.endswith("/api"):
+        base = base[: -len("/api")]
     try:
         async with httpx.AsyncClient(timeout=55) as client:
             upstream = await client.post(
-                f"{base}/agent/reply", json=body.model_dump(mode="json"))
+                f"{base}/api/agent/reply", json=body.model_dump(mode="json"))
     except Exception as exc:
         raise HTTPException(502, f"Old Core fallback unreachable: {type(exc).__name__}") from exc
     try:
