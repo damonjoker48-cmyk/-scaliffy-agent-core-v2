@@ -5,7 +5,7 @@ production store 166510782:
 
 - feature gate (V2 only for 625374849, production path unchanged)
 - execution id / normalizer / distributed lock namespaces
-- chat memory bounds (max 6) + evidence-wins-over-history
+- chat memory bounds (max 10) + evidence-wins-over-history
 - strict SessionState (allowlist, PATCH, episode reset)
 - deterministic evidence (99 / 179 / 35, stateless rebuild)
 - BuildAgentInput pure + no duplicate history
@@ -191,16 +191,16 @@ def test_distributed_lock_per_conversation(tmp_path):
 
 
 # -------------------------------------------------------------- memory ---
-def test_memory_bounded_six_and_capped(tmp_path):
+def test_memory_bounded_ten_and_capped(tmp_path):
     _fresh_db(tmp_path, "mem.db")
-    for i in range(12):
+    for i in range(14):
         _memory.append_user(store_id=TEST_STORE_ID, channel="test",
                             customer_id="m1", text=f"hello {i} " + "x" * 2000)
         _memory.append_assistant(store_id=TEST_STORE_ID, channel="test",
                                  customer_id="m1", text=f"reply {i}")
     recent = _memory.get_recent(store_id=TEST_STORE_ID, channel="test",
                                 customer_id="m1")
-    assert len(recent) <= 6
+    assert len(recent) <= 10
     for item in recent:
         assert len(item["text"]) <= 600
     assert " ".join(m["text"] for m in recent).find("hello 0") == -1
@@ -292,7 +292,7 @@ def test_build_agent_input_pure_and_single_history():
         current_message="chhal lpack")
     assert first == second  # reproducible / replayable
     assert first["debug"]["history_blocks"] == 1
-    assert len(first["recent_messages"]) <= 6
+    assert len(first["recent_messages"]) <= 10
     import inspect
     source = inspect.getsource(_agent_input.build_agent_input)
     for forbidden in ("durable.", "sqlite3", "cache_set", "memory_append",
@@ -488,3 +488,136 @@ def test_luna_call_failure_never_500s(tmp_path):
     price_result = client.send("ماهو سعر الباك")
     assert price_result.reply.strip()
     assert price_result.luna_call_count == 1
+
+
+# ------------------------------------------------- spark sales upgrade ---
+def test_spark_pure_helpers():
+    from scaliffy_agent.core_v2.spark import (  # noqa: E402
+        _extract_json,
+        build_compact_user,
+        requested_model_name,
+    )
+    assert requested_model_name().strip()
+    assert _extract_json('{"reply": "salam", "order_action": "none"}') == {
+        "reply": "salam", "order_action": "none"}
+    assert _extract_json('prefix {"reply": "x"} suffix') == {"reply": "x"}
+    assert _extract_json("no json here") is None
+    payload = build_compact_user({
+        "merchant_brain": "brain", "session_state": "STATE: x",
+        "evidence": "EVIDENCE", "recent_messages": [{"role": "customer", "content": "salam"}],
+        "current_message": "chhal lpack",
+    })
+    assert "CURRENT" in payload and "salam" in payload
+
+
+def test_sales_stages_deterministic():
+    from scaliffy_agent.core_v2.sales import (  # noqa: E402
+        has_objection, has_order_intent, next_stage, wants_photo,
+    )
+    assert has_order_intent("bghit ncommandi")
+    assert has_order_intent("je veux commander")
+    assert not has_order_intent("chhal lpack")
+    assert has_objection("ghali chwia")
+    assert has_objection("mazal nchof")
+    assert not has_objection("bghit jouj")
+    assert wants_photo("seft lia tswira")
+    assert next_stage(text="salam") == "browsing"
+    assert next_stage(text="chhal lpack", interest=True) == "interested"
+    assert next_stage(text="noir", previous="interested", color_decided=True) == "selecting_variant"
+    assert next_stage(text="ghali", previous="interested") == "objection"
+    assert next_stage(text="bghit ncommandi", previous="objection") == "ready_to_order"
+    assert next_stage(text="ok", previous="ready_to_order") == "ready_to_order"
+    assert next_stage(text="anything", previous="browsing", has_draft=True) == "collecting_order"
+
+
+def test_media_catalog_deterministic():
+    from scaliffy_agent.core_v2.media import (  # noqa: E402
+        available_media, resolve_media,
+    )
+    found = resolve_media(["reel_adam_001"])
+    assert found["status"] == "FOUND" and found["product_id"] == "pack-1"
+    assert resolve_media([])["status"] == "no_media"
+    assert resolve_media(["unknown_xyz"])["status"] == "unknown_media"
+    assert resolve_media(["reel_adam_001", "unknown_xyz"])["product_id"] == "pack-1"
+    photos = available_media(product_id="pack-1", variant="noir")
+    assert photos and photos[0] == "black_photo_01"
+    assert available_media(product_id="") == []
+
+
+def test_stage_flows_through_pipeline(tmp_path):
+    _fresh_db(tmp_path, "stage.db")
+    client = _client("stage1")
+    client.send("chhal lpack")
+    state = _state.load_state(store_id=TEST_STORE_ID, channel="test",
+                              customer_id="stage1")
+    assert state.sales_stage in ("interested", "browsing")
+    client.send("bghit ncommandi")
+    state2 = _state.load_state(store_id=TEST_STORE_ID, channel="test",
+                               customer_id="stage1")
+    assert state2.sales_stage == "ready_to_order"
+
+
+def test_vocabulary_bans_new_terms():
+    from scaliffy_agent.validation import merchant_vocabulary  # noqa: E402
+    out = merchant_vocabulary("le ta9am et un set avec bracelet")
+    assert "ta9am" not in out and "bracelet" not in out
+    assert "pack" in out
+
+
+class _CompactLuna:
+    """Fake compact-slot model: exercises the Spark pipeline branch."""
+
+    def __init__(self, reply: str = "الثمن 99 درهم.") -> None:
+        self.reply = reply
+        self.calls = 0
+        self.last_order_action = "none"
+        self.last_order_draft = {}
+        self.last_media_action = "none"
+        self.last_media_selection = {}
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
+        self.last_llm_latency_ms = 0
+        self.last_requested_model = "test-spark"
+        self.last_resolved_model = "test-spark"
+        self.last_report = {}
+
+    def answer_compact(self, *, agent_input, evidence=None, catalogue=None):
+        self.calls += 1
+        report = {"model_requested": "test-spark", "model_resolved": "test-spark",
+                  "input_tokens": 100, "output_tokens": 10, "latency_ms": 5}
+        self.last_report = dict(report)
+        return self.reply, {"order_action": "none", "order_draft": {},
+                            "media_action": "none"}, report
+
+
+def test_compact_branch_one_call_reports_model(tmp_path):
+    _fresh_db(tmp_path, "compact.db")
+    model = _CompactLuna()
+    client = V2TestClient("compact1", model=model)
+    result = client.send("ماهو سعر الباك")
+    assert model.calls == 1
+    assert result.luna_call_count == 1
+    assert result.reply == "الثمن 99 درهم."
+    assert result.trace.get("model_resolved") == "test-spark"
+
+
+def test_difficult_personas_grounded_and_concise(tmp_path):
+    from scaliffy_agent.core_v2.harness import (  # noqa: E402
+        PERSONA_MESSAGES, score_reply,
+    )
+    _fresh_db(tmp_path, "sales.db")
+    stats = {"turns": 0, "overlong": 0, "banned": 0}
+    for persona in ("skeptic", "haggler", "hesitator", "negotiator",
+                    "photo_seeker", "reel_buyer", "impatient"):
+        client = _client(f"sales_{persona}")
+        for text in PERSONA_MESSAGES[persona][:4]:
+            result = client.send(text)
+            assert result.reply.strip(), persona
+            assert result.luna_call_count == 1, persona
+            scored = score_reply(result.reply, stage=result.trace.get("sales_stage") or "")
+            stats["turns"] += 1
+            stats["overlong"] += int(scored["overlong"])
+            stats["banned"] += len(scored["banned_terms"])
+            assert not scored["banned_terms"], (persona, text, result.reply)
+    assert stats["banned"] == 0
+    print("\nSALES_STATS:", stats)

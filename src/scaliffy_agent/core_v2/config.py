@@ -5,8 +5,8 @@ TEST_STORE_ID = "625374849"
 PRODUCTION_STORE_ID = "166510782"
 AGENT_CORE_VERSION_V2 = "v2_test"
 
-# Chat-memory bounds (n8n style: small recent dialogue only).
-MEMORY_LIMIT = 6
+# Chat-memory bounds: rolling window, MAX 10 recent messages (§10).
+MEMORY_LIMIT = 10
 MEMORY_MESSAGE_CHAR_CAP = 600
 MEMORY_TOTAL_CHAR_CAP = 2400
 

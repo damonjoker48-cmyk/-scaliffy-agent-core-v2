@@ -594,6 +594,8 @@ class AgentCore:
         order_draft = out.get("order_draft") if isinstance(out.get("order_draft"), dict) else {}
         return AgentReply(
             text=str(out.get("reply") or ""),
+            requested_model=str(trace.get("model_requested") or ""),
+            resolved_model=str(trace.get("model_resolved") or ""),
             script=script,
             used_rag=False,
             reason=str(trace.get("reason") or "v2_ok"),

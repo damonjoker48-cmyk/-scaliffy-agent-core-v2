@@ -3,7 +3,7 @@
 ONE job: preserve a SMALL amount of recent dialogue so Luna knows what
 the customer refers to (pronouns, ellipsis, previous choices).
 
-- get_recent(store, channel, customer, limit=6): max 6 messages.
+- get_recent(store, channel, customer, limit=10): max 10 messages.
 - append_user / append_assistant with per-message size cap.
 - clear_episode for post-order resets.
 

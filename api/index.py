@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from scaliffy_agent import AgentCore, IncomingMessage, StoreContext, YouCanIndexer
 from scaliffy_agent.ingestion import YouCanProduct, YouCanSnapshot
-from scaliffy_agent.providers import OpenRouterLunaModel, PineconeKnowledgeStore
+from scaliffy_agent.providers import PineconeKnowledgeStore, default_chat_model
 from scaliffy_agent.types import (
     Attachment, Channel, ConversationSurface, ConversationTurn, KnowledgeDocument, ReplyScript,
     VoiceTranscription,
@@ -790,7 +790,7 @@ async def agent_reply(body: AgentMessageBody, background_tasks: BackgroundTasks)
         surface = ConversationSurface(body.surface)
     except ValueError as exc:
         raise HTTPException(422, "Unsupported conversation surface") from exc
-    model = OpenRouterLunaModel()
+    model = default_chat_model()
     agent = AgentCore(knowledge_store=PineconeKnowledgeStore(), model=model)
     result = agent.reply(
         store=StoreContext(body.merchant_account_id, body.store_id, body.store_name, body.channel, human_takeover=body.human_takeover),
@@ -881,6 +881,7 @@ async def agent_reply(body: AgentMessageBody, background_tasks: BackgroundTasks)
             "llm_output_tokens": result.llm_output_tokens if result else 0,
             "llm_latency_ms": result.llm_latency_ms if result else 0,
             "retrieval_latency_ms": result.retrieval_latency_ms if result else 0,
+            "model": (result.resolved_model or result.requested_model) if result else "",
             "memory_called": bool(result and result.memory_called),
             "memory_updates_count": result.memory_updates_count if result else 0,
         },
@@ -1758,7 +1759,7 @@ async def replay_latest_instagram_dm(request: Request) -> dict[str, Any]:
 
     _, latest = max(candidates, key=lambda candidate: candidate[0])
     context = instagram_store_context()
-    agent = AgentCore(knowledge_store=PineconeKnowledgeStore(), model=OpenRouterLunaModel())
+    agent = AgentCore(knowledge_store=PineconeKnowledgeStore(), model=default_chat_model())
     history = await instagram_conversation_history(
         customer_id=latest["customer_id"],
         current_message_id=latest["message_id"],
@@ -1903,7 +1904,7 @@ async def _dispatch_channel_message(message: IncomingMessage) -> int:
                 surface=message.surface,
                 comment_id=message.comment_id,
             )
-            agent = AgentCore(knowledge_store=knowledge_store, model=OpenRouterLunaModel())
+            agent = AgentCore(knowledge_store=knowledge_store, model=default_chat_model())
             phase_started_at = time.perf_counter()
             reply = agent.reply(store=context, message=enriched_message)
             agent_ms = round((time.perf_counter() - phase_started_at) * 1000)

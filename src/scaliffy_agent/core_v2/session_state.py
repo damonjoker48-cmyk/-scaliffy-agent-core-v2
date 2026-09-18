@@ -30,6 +30,16 @@ ALLOWED_FIELDS = (
     "draft_order_id",
     "recent_media_id",
     "resolved_media_product_id",
+    "sales_stage",
+)
+
+SALES_STAGES = (
+    "browsing",
+    "interested",
+    "selecting_variant",
+    "objection",
+    "ready_to_order",
+    "collecting_order",
 )
 
 FORBIDDEN_KEYS = frozenset({
@@ -52,6 +62,7 @@ class SessionStateV2:
     draft_order_id: str = ""
     recent_media_id: str = ""
     resolved_media_product_id: str = ""
+    sales_stage: str = ""
 
     def to_dict(self) -> dict:
         return dict(asdict(self))

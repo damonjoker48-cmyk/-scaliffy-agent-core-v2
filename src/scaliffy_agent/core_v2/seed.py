@@ -23,13 +23,13 @@ TEST_MERCHANT_ACCOUNT_ID = "625374849"
 
 def adam_test_brain_content() -> str:
     return (
-        "Adam Luxe (test clone for 625374849). Le pack se vend 99 MAD "
-        "(الباك). Deux packs 179 MAD avec 2 gourmettas et livraison offerte "
-        "sur l'offre (offer total). Livraison 35 MAD partout au Maroc, "
-        "y compris Marrakech — no free Marrakech delivery, no city-specific "
-        "shipping exception. Cadeau: gourmetta / ݣورميطة (1 per pack). "
-        "Tone: warm Moroccan Darija, natural, concise. Product words: pack / "
-        "الباك; gift words: gourmetta / ݣورميطة."
+        "Adam Luxe (test clone for 625374849). Le pack (الباك) se vend 99 MAD "
+        "avec 1 gourmetta (ݣورميطة) OFFERTE — offre temporaire en cours. "
+        "Deux packs 179 MAD avec 2 gourmettas offertes (offre temporaire). "
+        "Livraison 35 MAD partout au Maroc, y compris Marrakech — no free "
+        "shipping, no city exception, no quantity shipping exception. "
+        "Tone: warm Moroccan Darija, natural, concise, 1-3 short lines. "
+        "Product words: pack / الباك; gift words: gourmetta / ݣورميطة."
     )
 
 
@@ -66,6 +66,7 @@ def test_catalogue(*, store_id: str = TEST_STORE_ID) -> dict:
         "offer_total_price": "179",
         "offer_free_delivery": "true",
         "offer_free_bracelets": "2",
+        "offer_temporary": "true",
         "single_offer_price": "99",
         "single_offer_bracelets": "1",
         # Variants / colors:

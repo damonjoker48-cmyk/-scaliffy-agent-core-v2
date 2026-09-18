@@ -150,7 +150,8 @@ def build_evidence(
     # Built BEFORE shipping so the 2-pack free-delivery override applies.
     # Never compute totals here: no 35 added on top of a free-delivery offer.
     offer_keys = ("offer_id", "offer_name", "offer_total_price", "offer_free_delivery",
-                  "offer_free_bracelets", "offer_min_quantity", "two_pack_total", "free_delivery",
+                  "offer_free_bracelets", "offer_min_quantity", "offer_temporary",
+                  "two_pack_total", "free_delivery",
                   "single_offer_price", "single_offer_bracelets", "single_pack_offer")
     offer: dict[str, str] = {}
     for key in offer_keys:

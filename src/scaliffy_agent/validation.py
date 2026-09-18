@@ -59,6 +59,11 @@ _PRODUCT_TERMS = (
     ("Luxury Swan Set", "pack"),
     ("luxury swan set", "pack"),
     ("طقم", "الباك"),
+    ("ta9am", "pack"),
+    ("ta9m", "pack"),
+    ("taqam", "pack"),
+    ("sets", "packs"),
+    ("set", "pack"),
 )
 # Word-boundary over Unicode LETTERS only ([^\W\d_]): Arabic punctuation
 # such as ؟ ، ؛ must count as boundaries, not as word characters.

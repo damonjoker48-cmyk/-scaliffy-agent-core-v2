@@ -2033,3 +2033,58 @@ class OpenRouterLunaModel(ChatModel):
         self.last_cached_input_tokens = int(cached_tokens) if isinstance(cached_tokens, (int, float)) else 0
         self.last_output_tokens = int(completion_tokens) if isinstance(completion_tokens, (int, float)) else 0
         return text
+
+
+class MuseSparkModel:
+    """Compact V2 model slot for Muse Spark 1.3 Contributor (§1).
+
+    Uses core_v2.spark.answer_once (compact prompt, ONE generation).
+    Exposes the same last_* attributes as other models for uniformity.
+    """
+
+    def __init__(self) -> None:
+        self.last_order_action = "none"
+        self.last_order_draft: dict = {}
+        self.last_media_action = "none"
+        self.last_media_selection: dict = {}
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
+        self.last_cached_input_tokens = 0
+        self.last_llm_latency_ms = 0
+        self.last_requested_model = ""
+        self.last_resolved_model = ""
+        self.last_report: dict = {}
+
+    def answer_compact(self, *, agent_input: dict, evidence: dict | None = None,
+                       catalogue: dict | None = None) -> tuple[str, dict, dict]:
+        from .core_v2.spark import answer_once
+
+        text, extras, report = answer_once(
+            agent_input=agent_input, evidence=evidence,
+        )
+        self.last_order_action = str(extras.get("order_action") or "none")
+        self.last_order_draft = dict(extras.get("order_draft") or {})
+        self.last_media_action = str(extras.get("media_action") or "none")
+        try:
+            self.last_input_tokens = int(report.get("input_tokens") or 0)
+            self.last_output_tokens = int(report.get("output_tokens") or 0)
+            self.last_llm_latency_ms = int(report.get("latency_ms") or 0)
+        except (TypeError, ValueError):
+            pass
+        self.last_requested_model = str(report.get("model_requested") or "")
+        self.last_resolved_model = str(report.get("model_resolved") or "")
+        self.last_report = dict(report or {})
+        return text, extras, report
+
+
+def default_chat_model() -> object:
+    """Single decision point: Spark compact slot when AGENT_MODEL names it."""
+    try:
+        from .core_v2.spark import requested_model_name
+
+        name = requested_model_name()
+    except Exception:
+        name = ""
+    if "spark" in str(name or "").lower():
+        return MuseSparkModel()
+    return OpenRouterLunaModel()

@@ -29,7 +29,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_FILE = os.path.join(ROOT, ".env.local")
 PROJECT_DEFAULT = "scaliffy-agent-core-v2"
-MODEL_DEFAULT = "openai/gpt-5.6-luna"
+MODEL_DEFAULT = "meta/muse-spark-1.3-contributor"
 API = "https://api.vercel.com"
 
 RUNTIME_FILES = ("api", "src", "requirements.txt", "vercel.json")

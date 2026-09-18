@@ -10,7 +10,7 @@ is passed explicitly. Output is reproducible and replayable: same inputs
 
 Final Luna structure (conceptual):
   SYSTEM + compact Merchant Brain + compact SessionState +
-  current deterministic Evidence + 4-6 recent messages + CURRENT message.
+  current deterministic Evidence + max 10 recent messages + CURRENT message.
 Recent messages appear EXACTLY ONCE (assertion + debug trace).
 """
 from __future__ import annotations
@@ -58,7 +58,7 @@ def build_agent_input(
         state_text = _cap(str(session_state or ""), 1000) or "STATE: (no prior context)"
 
     recent: list[dict] = []
-    for item in list(recent_messages or [])[-6:]:
+    for item in list(recent_messages or [])[-10:]:
         if isinstance(item, dict):
             role = str(item.get("role") or "").strip()
             text = str(item.get("text") or item.get("content") or "").strip()[:600]
@@ -70,7 +70,7 @@ def build_agent_input(
         if len(text) < 1 or not any(c.isalpha() or c.isdigit() for c in text):
             continue
         recent.append({"role": role, "content": text})
-    recent = recent[-6:]
+    recent = recent[-10:]
 
     ev = evidence if isinstance(evidence, dict) else {}
     evidence_text = _cap(
@@ -100,7 +100,7 @@ def build_agent_input(
                 continue
             seen.add(digest)
             deduped.append(msg)
-        recent = deduped[-6:]
+        recent = deduped[-10:]
 
     system_text = (
         "SCALIFFY CORE V2 (test): backend owns truth, Luna owns language. "

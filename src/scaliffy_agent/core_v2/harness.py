@@ -36,7 +36,38 @@ PERSONA_MESSAGES: dict[str, list[str]] = {
     "returning": ["سلام", "أنا كنت خديت الباك شحال هادي", "بغيت جوج آخرين"],
     "irrelevant": ["سلام", "شنو سميتك؟", "كاين شي ماتش اليوم؟", "شحال الباك"],
     "media": ["سلام", "chhal hada?", "bghit jouj"],
+    # Difficult sales customers (§26): skeptical, haggling, hesitant, slow.
+    "skeptic": ["salam", "wach qualité mzyana?", "3lach nakhod mn 3ndkom?", "nchof"],
+    "haggler": ["chhal lpack", "ghali chwia", "jouj ila khdit?", "nchof"],
+    "hesitator": ["salam", "mazal", "nchof", "ma3rftch achmen couleur", "noir wla abyed?"],
+    "negotiator": ["chhal jouj", "wach kayn chi offre?", "ghali", "safi ghadi nfekker"],
+    "photo_seeker": ["salam", "seft lia tswira", "wach kayn noir?", "bghit nchof labyed"],
+    "reel_buyer": ["chhal hada?", "noir?", "jouj", "bghit ncommandi"],
+    "impatient": ["chhal?", "tawsil?", "jouj?", "ok commande"],
 }
+
+# Customer-facing terms that must NEVER appear (post-vocabulary-guard).
+BANNED_TERMS: tuple[str, ...] = (
+    "طقم", "ta9am", "ta9m", "Luxury Swan Set", "swan",
+    "bracelet", "إسورة", "سوار",
+)
+
+_CTA_WORDS = ("commande", "commander", "ncommandi", "ntloby", "order", "achete")
+
+
+def score_reply(reply: str, *, stage: str = "") -> dict:
+    """Deterministic sales-behavior metrics for one reply (§27)."""
+    text = str(reply or "")
+    lines = [line for line in text.splitlines() if line.strip()]
+    return {
+        "chars": len(text),
+        "lines": len(lines),
+        "overlong": len(lines) > 3 or len(text) > 450,
+        "questions": text.count("?") + text.count("؟"),
+        "has_cta": any(word in text.lower() for word in _CTA_WORDS),
+        "pushy": any(word in text.lower() for word in _CTA_WORDS) and stage in ("browsing", "interested"),
+        "banned_terms": [term for term in BANNED_TERMS if term in text],
+    }
 
 ADVERSARIAL_HISTORY: list[dict] = [
     {"role": "assistant", "text": "Marrakech delivery is free"},

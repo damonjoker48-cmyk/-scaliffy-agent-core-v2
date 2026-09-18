@@ -47,6 +47,7 @@ def is_v2_store(store_id: str) -> bool:
 class AgentCoreV2:
     def __init__(self, *, model: Any = None) -> None:
         self.model = model
+        self._last_spark_report: dict = {}
 
     # ------------------------------------------------------------ main ---
     def handle(
@@ -249,20 +250,19 @@ class AgentCoreV2:
                 value = str(media_ctx.get(field) or "").strip()
                 if value:
                     keys.add(value)
-            mapping = test_media_map()
+            from scaliffy_agent.core_v2.media import resolve_media as _resolve_media
             adapter_pid = str(
                 media_ctx.get("product_id") or media_ctx.get("recognized_product") or ""
             ).strip()
             if adapter_pid:
                 reel_status, reel_product = "FOUND", adapter_pid[:200]
-            elif keys:
-                hits = {mapping[k] for k in keys if k in mapping}
-                if len(hits) == 1:
-                    reel_status, reel_product = "FOUND", next(iter(hits))
-                elif len(hits) > 1:
-                    reel_status = "AMBIGUOUS"
-                else:
-                    reel_status = "unknown_media"
+            else:
+                resolved_media = _resolve_media(keys)
+                reel_status = str(resolved_media.get("status") or "no_media")
+                reel_product = str(resolved_media.get("product_id") or "")[:200]
+                if reel_status == "FOUND" and resolved_media.get("variant") and not state.selected_color:
+                    state.patch({"selected_color": str(resolved_media["variant"])[:120]})
+            _ = test_media_map  # legacy alias map superseded by media catalog
             if reel_status == "FOUND" and reel_product:
                 state.patch({"resolved_media_product_id": reel_product})
                 if not state.recent_media_id and message.media_reference:
@@ -289,6 +289,29 @@ class AgentCoreV2:
                 status, product_id = "NOT_FOUND", ""
             resolution = _R()
 
+        # 4b. Deterministic sales stage (sticky progression, no Luna).
+        try:
+            from scaliffy_agent.core_v2.sales import next_stage as _next_stage
+            from scaliffy_agent.core_v2.sales import wants_photo as _wants_photo
+            from scaliffy_agent.evidence import (
+                is_price_intent as _v2_is_price,
+                is_shipping_intent as _v2_is_ship,
+            )
+            _color_decided = str((color_status or {}).get("status")) in {"confirmed", "single_option"}
+            _interest = bool(
+                _v2_is_price(message.text) or _v2_is_ship(message.text)
+                or reel_status == "FOUND" or _wants_photo(message.text)
+            )
+            _stage = _next_stage(
+                text=message.text, previous=state.sales_stage,
+                color_decided=_color_decided, quantity=turn_quantity,
+                interest=_interest, has_draft=bool(state.draft_order_id),
+            )
+            if _stage and _stage != state.sales_stage:
+                state.patch({"sales_stage": _stage})
+        except Exception:
+            pass
+
         # 5. Deterministic evidence — rebuilt from scratch every turn.
         evidence, _fragment = build_evidence_v2(
             catalogue=cat,
@@ -303,6 +326,24 @@ class AgentCoreV2:
             reel_status=reel_status,
             reel_owner_is_merchant=reel_owner,
         )
+        # 5b. Deterministic photo inventory for photo requests (refs only).
+        media_options: list[str] = []
+        try:
+            from scaliffy_agent.core_v2.media import available_media as _avail_media
+            from scaliffy_agent.core_v2.sales import wants_photo as _wants_photo2
+            if _wants_photo2(message.text):
+                _mpid = str(getattr(resolution, "product_id", "") or state.active_product_id or "")
+                _mvar = ""
+                if isinstance(color_status, dict):
+                    _mvar = str(color_status.get("variant") or color_status.get("color") or "")
+                media_options = _avail_media(
+                    product_id=_mpid, variant=_mvar or state.selected_color)
+        except Exception:
+            media_options = []
+        if media_options:
+            evidence["media_options"] = [str(r)[:120] for r in media_options[:4]]
+        if reel_status in ("FOUND", "AMBIGUOUS"):
+            evidence["media_resolution"] = {"status": reel_status, "product_id": reel_product}
         context_build_ms = int((time.perf_counter() - ctx_started) * 1000)
 
         # 6. BuildAgentInput — PURE (no DB, no mutation, no Luna).
@@ -389,6 +430,12 @@ class AgentCoreV2:
             reply_text = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
             reason = "safe_fallback_empty"
 
+        # Sales stage follows the deterministic action (no second Luna).
+        try:
+            if str(order_action or "") in {"start_order", "start_new_order", "resend_order_form"}:
+                state.patch({"sales_stage": "collecting_order"})
+        except Exception:
+            pass
         # Order test mode: never create real orders on the test store.
         if str(order_mode or "test").lower() != "test":
             order_mode = "test"
@@ -444,6 +491,7 @@ class AgentCoreV2:
             outbound_count = 0
 
         total_ms = int((time.perf_counter() - total_started) * 1000)
+        spark_report = dict(getattr(self, "_last_spark_report", {}) or {})
         trace = {
             "agent_core_version": AGENT_CORE_VERSION_V2,
             "resolver": str(getattr(resolution, "status", "")),
@@ -452,6 +500,12 @@ class AgentCoreV2:
             "reel_status": reel_status,
             "state_reset": state_reset,
             "order_mode": order_mode,
+            "model_requested": str(spark_report.get("model_requested") or ""),
+            "model_resolved": str(spark_report.get("model_resolved") or ""),
+            "model_input_tokens": int(spark_report.get("input_tokens") or 0),
+            "model_output_tokens": int(spark_report.get("output_tokens") or 0),
+            "sales_stage": state.sales_stage,
+            "active_product_id": state.active_product_id,
         }
         obs = _obs.log_turn(
             execution_id=execution_id, store_id=store_id, channel=channel,
@@ -472,6 +526,8 @@ class AgentCoreV2:
             "observability": obs,
             "order_action": order_action,
             "order_draft": order_draft,
+            "model": str(trace.get("model_resolved") or trace.get("model_requested") or ""),
+            "sales_stage": state.sales_stage,
         }
         _durable.exec_put(execution_id=execution_id, result=result)
         # Cache stores the full result; the retry path returns a slim view.
@@ -489,6 +545,19 @@ class AgentCoreV2:
             # adapter; the pipeline shape is identical either way.
             return _deterministic_reply(evidence=evidence, text=message.text), {
                 "order_action": "none", "order_draft": {}, "media_action": "none",
+            }
+        # Compact Muse path: the pure AgentInput goes straight to the
+        # model (no legacy prompt rebuild, still exactly ONE generation).
+        if hasattr(self.model, "answer_compact"):
+            self._last_spark_report = {}
+            compact_text, compact_extras, compact_report = self.model.answer_compact(
+                agent_input=agent_input, evidence=evidence, catalogue=catalogue,
+            )
+            self._last_spark_report = dict(compact_report or {})
+            return str(compact_text or ""), {
+                "order_action": str((compact_extras or {}).get("order_action") or "none"),
+                "order_draft": dict((compact_extras or {}).get("order_draft") or {}),
+                "media_action": str((compact_extras or {}).get("media_action") or "none"),
             }
         # Adapt the V2 compact payload to the existing ChatModel shape.
         # History travels EXACTLY once as real conversation messages.

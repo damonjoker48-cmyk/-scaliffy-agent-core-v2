@@ -49,7 +49,9 @@ def log_turn(
         "ts": int(time.time()),
     }
     if isinstance(extra, dict):
-        for key in ("resolver", "reason", "order_action", "agent_core_version"):
+        for key in ("resolver", "reason", "order_action", "agent_core_version",
+                    "model_requested", "model_resolved", "sales_stage",
+                    "active_product_id"):
             if key in extra:
                 record[key] = extra[key]
     try:
