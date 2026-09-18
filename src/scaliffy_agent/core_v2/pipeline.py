@@ -366,10 +366,13 @@ class AgentCoreV2:
         )
         luna_ms = int((time.perf_counter() - luna_started) * 1000)
         luna_fallback_reason = ""
+        model_requested_override = ""
         try:
             luna_fallback_reason = str((luna_extras or {}).pop("_luna_fallback_reason", "") or "")
+            model_requested_override = str((luna_extras or {}).pop("_model_requested", "") or "")
         except Exception:
             luna_fallback_reason = ""
+            model_requested_override = ""
 
         # 8. Validate (deterministic, NO second Luna). Safe fallback on
         #    violation: short honest clarification, HTTP 200 semantics.
@@ -500,7 +503,7 @@ class AgentCoreV2:
             "reel_status": reel_status,
             "state_reset": state_reset,
             "order_mode": order_mode,
-            "model_requested": str(spark_report.get("model_requested") or ""),
+            "model_requested": str(spark_report.get("model_requested") or model_requested_override or ""),
             "model_resolved": str(spark_report.get("model_resolved") or ""),
             "model_input_tokens": int(spark_report.get("input_tokens") or 0),
             "model_output_tokens": int(spark_report.get("output_tokens") or 0),
@@ -629,9 +632,15 @@ class AgentCoreV2:
                     fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
             except Exception:
                 fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
+            try:
+                from scaliffy_agent.core_v2.spark import requested_model_name as _rmn
+                _mreq = _rmn()
+            except Exception:
+                _mreq = ""
             return fallback, {
                 "order_action": "none", "order_draft": {}, "media_action": "none",
                 "_luna_fallback_reason": failure,
+                "_model_requested": _mreq,
             }
 
 
