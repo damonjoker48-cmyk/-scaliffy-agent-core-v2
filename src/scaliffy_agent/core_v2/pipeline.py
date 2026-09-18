@@ -44,6 +44,44 @@ def is_v2_store(store_id: str) -> bool:
     return str(store_id or "").strip() == TEST_STORE_ID
 
 
+def _luna_fallback(*, evidence: dict | None, text: str, exc: BaseException) -> tuple[str, dict]:
+    """Honest intent-based fallback for ANY Luna-call failure (never a 500).
+
+    The failed call still counts as the ONE call of this turn; the reason
+    travels in extras for the trace. No second model call is made.
+    """
+    raw = str(exc)
+    if raw.startswith("unsafe_reply:"):
+        failure = "unsafe_" + raw.split(":", 1)[-1]
+    else:
+        failure = f"luna_error_{type(exc).__name__}"
+    try:
+        from scaliffy_agent.evidence import (
+            is_price_intent as _is_price,
+            is_shipping_intent as _is_ship,
+        )
+        facts = evidence if isinstance(evidence, dict) else {}
+        delivery = str(facts.get("delivery_price") or "").strip()
+        if _is_ship(text) and delivery and delivery != "UNKNOWN":
+            fallback = f"التوصيل {delivery} درهم لجميع المدن."
+        elif _is_price(text):
+            fallback = "الباك متوفر، قوليا شحال بغيتي (واحد ولا جوج) ونعطيك الثمن بالضبط."
+        else:
+            fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
+    except Exception:
+        fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
+    try:
+        from scaliffy_agent.core_v2.spark import requested_model_name as _rmn
+        _mreq = _rmn()
+    except Exception:
+        _mreq = ""
+    return fallback, {
+        "order_action": "none", "order_draft": {}, "media_action": "none",
+        "_luna_fallback_reason": failure,
+        "_model_requested": _mreq,
+    }
+
+
 class AgentCoreV2:
     def __init__(self, *, model: Any = None) -> None:
         self.model = model
@@ -552,16 +590,20 @@ class AgentCoreV2:
         # Compact Muse path: the pure AgentInput goes straight to the
         # model (no legacy prompt rebuild, still exactly ONE generation).
         if hasattr(self.model, "answer_compact"):
-            self._last_spark_report = {}
-            compact_text, compact_extras, compact_report = self.model.answer_compact(
-                agent_input=agent_input, evidence=evidence, catalogue=catalogue,
-            )
-            self._last_spark_report = dict(compact_report or {})
-            return str(compact_text or ""), {
-                "order_action": str((compact_extras or {}).get("order_action") or "none"),
-                "order_draft": dict((compact_extras or {}).get("order_draft") or {}),
-                "media_action": str((compact_extras or {}).get("media_action") or "none"),
-            }
+            try:
+                self._last_spark_report = {}
+                compact_text, compact_extras, compact_report = self.model.answer_compact(
+                    agent_input=agent_input, evidence=evidence, catalogue=catalogue,
+                )
+                self._last_spark_report = dict(compact_report or {})
+                return str(compact_text or ""), {
+                    "order_action": str((compact_extras or {}).get("order_action") or "none"),
+                    "order_draft": dict((compact_extras or {}).get("order_draft") or {}),
+                    "media_action": str((compact_extras or {}).get("media_action") or "none"),
+                }
+            except Exception as exc:
+                return _luna_fallback(
+                    evidence=evidence, text=message.text, exc=exc)
         # Adapt the V2 compact payload to the existing ChatModel shape.
         # History travels EXACTLY once as real conversation messages.
         try:
@@ -611,37 +653,8 @@ class AgentCoreV2:
         except Exception as exc:
             # A Luna-call failure (unsafe reply, empty/malformed output,
             # provider error) must NEVER become a customer-facing 500.
-            # Degrade to the honest intent-based fallback; the Luna call
-            # still counts as the ONE call of this turn.
-            raw = str(exc)
-            if raw.startswith("unsafe_reply:"):
-                failure = "unsafe_" + raw.split(":", 1)[-1]
-            else:
-                failure = f"luna_error_{type(exc).__name__}"
-            try:
-                from scaliffy_agent.evidence import (
-                    is_price_intent as _is_price,
-                    is_shipping_intent as _is_ship,
-                )
-                delivery = str(evidence.get("delivery_price") or "").strip()
-                if _is_ship(message.text) and delivery and delivery != "UNKNOWN":
-                    fallback = f"التوصيل {delivery} درهم لجميع المدن."
-                elif _is_price(message.text):
-                    fallback = "الباك متوفر، قوليا شحال بغيتي (واحد ولا جوج) ونعطيك الثمن بالضبط."
-                else:
-                    fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
-            except Exception:
-                fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
-            try:
-                from scaliffy_agent.core_v2.spark import requested_model_name as _rmn
-                _mreq = _rmn()
-            except Exception:
-                _mreq = ""
-            return fallback, {
-                "order_action": "none", "order_draft": {}, "media_action": "none",
-                "_luna_fallback_reason": failure,
-                "_model_requested": _mreq,
-            }
+            return _luna_fallback(
+                evidence=evidence, text=message.text, exc=exc)
 
 
 def _deterministic_reply(*, evidence: dict, text: str) -> str:
