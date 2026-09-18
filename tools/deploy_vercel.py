@@ -188,6 +188,7 @@ def main() -> None:
         "META_SYSTEM_USER_TOKEN", "AGENT_CORE_ADMIN_TOKEN",
         "AGENT_CORE_STATE_SECRET", "SCALIFFY_API_BASE",
         "YOUCAN_CLIENT_ID", "YOUCAN_CLIENT_SECRET",
+        "V2_CANARY_STORES",
     )
     desired: dict[str, str] = {k: secrets[k] for k in SYNC_KEYS if secrets.get(k)}
     desired["AGENT_MODEL"] = secrets.get("AGENT_MODEL", "") or MODEL_DEFAULT
