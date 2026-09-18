@@ -782,6 +782,33 @@ async def meta_diagnostics(request: Request) -> dict[str, Any]:
     }
 
 
+async def _proxy_to_old_core(body: AgentMessageBody) -> dict[str, Any]:
+    """Transparent fallback for tenants V2 does not serve yet.
+
+    Global SaaS flips stay safe: unknown tenants are proxied to the old
+    Core with status/body passthrough (plus a served_by marker).
+    """
+    base = env("OLD_CORE_URL").rstrip("/")
+    if not base:
+        raise HTTPException(503, "Tenant not served by Core V2 and no Old Core fallback configured")
+    try:
+        async with httpx.AsyncClient(timeout=55) as client:
+            upstream = await client.post(
+                f"{base}/agent/reply", json=body.model_dump(mode="json"))
+    except Exception as exc:
+        raise HTTPException(502, f"Old Core fallback unreachable: {type(exc).__name__}") from exc
+    try:
+        payload = upstream.json()
+    except Exception:
+        payload = {"ok": False, "raw": upstream.text[:500]}
+    if not isinstance(payload, dict):
+        payload = {"ok": False, "raw": str(payload)[:500]}
+    if upstream.status_code != 200:
+        raise HTTPException(upstream.status_code, payload)
+    payload["served_by"] = "v2_proxy_old_core"
+    return payload
+
+
 @app.post("/agent/reply")
 async def agent_reply(body: AgentMessageBody, background_tasks: BackgroundTasks) -> dict[str, Any]:
     started_at = time.perf_counter()
@@ -790,6 +817,18 @@ async def agent_reply(body: AgentMessageBody, background_tasks: BackgroundTasks)
         surface = ConversationSurface(body.surface)
     except ValueError as exc:
         raise HTTPException(422, "Unsupported conversation surface") from exc
+    try:
+        from scaliffy_agent.core_v2.config import TEST_STORE_ID as _V2T
+        from scaliffy_agent.core_v2.config import is_canary_store as _ISC
+        _local = (str(body.store_id or "").strip() == str(_V2T)
+                  or bool(_ISC(str(body.store_id or ""),
+                               str(body.merchant_account_id or ""))))
+    except Exception:
+        _local = False
+    if not _local:
+        # Unknown tenant: transparent proxy (SaaS flips stay safe).
+        proxied = await _proxy_to_old_core(body)
+        return proxied
     model = default_chat_model()
     agent = AgentCore(knowledge_store=PineconeKnowledgeStore(), model=model)
     result = agent.reply(
