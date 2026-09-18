@@ -29,6 +29,7 @@ from . import session_state as _state
 from .agent_input import build_agent_input
 from .brain import load_brain
 from .config import (
+    AGENT_CORE_VERSION_CANARY,
     AGENT_CORE_VERSION_V2,
     MEMORY_LIMIT,
     TEST_STORE_ID,
@@ -42,6 +43,21 @@ from .seed import test_brain, test_catalogue, test_media_map
 
 def is_v2_store(store_id: str) -> bool:
     return str(store_id or "").strip() == TEST_STORE_ID
+
+
+def _require_canary_grounding(*, reply_text: str, evidence: dict | None) -> None:
+    """Fail closed on canary tenants: money claims need grounded evidence."""
+    import json
+
+    from scaliffy_agent.validation import _money
+
+    facts = evidence if isinstance(evidence, dict) else {}
+    claimed = _money(reply_text)
+    if not claimed:
+        return
+    grounded = _money(json.dumps(facts, ensure_ascii=False, sort_keys=True))
+    if not grounded:
+        raise RuntimeError("unsafe_reply:canary_ungrounded_money")
 
 
 def _luna_fallback(*, evidence: dict | None, text: str, exc: BaseException) -> tuple[str, dict]:
@@ -98,9 +114,12 @@ class AgentCoreV2:
         known_customer: dict | None = None,
         media_context: dict | None = None,
         order_mode: str = "test",
+        canary: bool = False,
     ) -> dict:
-        if not is_v2_store(message.store_id):
+        _is_test = is_v2_store(message.store_id)
+        if not (_is_test or canary):
             raise ValueError("v2_refuses_non_test_store")
+        _ver = AGENT_CORE_VERSION_V2 if _is_test else AGENT_CORE_VERSION_CANARY
         total_started = time.perf_counter()
         execution_id = build_execution_id(
             store_id=message.store_id,
@@ -116,7 +135,7 @@ class AgentCoreV2:
             return {
                 "execution_id": execution_id,
                 "reply": str(cached_exec.get("reply") or ""),
-                "agent_core_version": AGENT_CORE_VERSION_V2,
+                "agent_core_version": _ver,
                 "luna_call_count": 0,
                 "outbound_count": 0,
                 "duplicate_execution": True,
@@ -135,7 +154,7 @@ class AgentCoreV2:
                 return {
                     "execution_id": execution_id,
                     "reply": str(cached_exec.get("reply") or ""),
-                    "agent_core_version": AGENT_CORE_VERSION_V2,
+                    "agent_core_version": _ver,
                     "luna_call_count": 0,
                     "outbound_count": 0,
                     "duplicate_execution": True,
@@ -173,15 +192,34 @@ class AgentCoreV2:
         channel = message.channel
         customer_id = message.customer_id
 
-        cat = dict(catalogue) if isinstance(catalogue, dict) else test_catalogue()
-        cat.setdefault("store_id", TEST_STORE_ID)
-        brain_in = dict(brain) if isinstance(brain, dict) else test_brain()
+        # Canary (prod tenant) uses ONLY caller-supplied merchant data.
+        # Test seed NEVER applies outside the test store (fail closed).
+        _is_test = is_v2_store(store_id)
+        if isinstance(catalogue, dict):
+            cat = dict(catalogue)
+        elif _is_test:
+            cat = test_catalogue()
+        else:
+            cat = {}
+        cat.setdefault("store_id", TEST_STORE_ID if _is_test else store_id)
+        if isinstance(brain, dict):
+            brain_in = dict(brain)
+        elif _is_test:
+            brain_in = test_brain()
+        else:
+            brain_in = {}
         media_ctx = dict(media_context) if isinstance(media_context, dict) else {}
         order = dict(active_order) if isinstance(active_order, dict) else {}
         known = dict(known_customer) if isinstance(known_customer, dict) else {}
 
         # 1. Merchant Brain (compact, cached by store_id + brain_version).
-        brain_record = load_brain(store_id=store_id, brain=brain_in)
+        try:
+            brain_record = load_brain(store_id=store_id, brain=brain_in)
+        except ValueError:
+            if _is_test:
+                raise
+            brain_record = {"store_id": store_id, "version": "none",
+                            "content": "", "estimated_tokens": 0}
 
         # 2. Chat memory (max 6) — dialogue only.
         recent = _memory.get_recent(
@@ -288,18 +326,36 @@ class AgentCoreV2:
                 value = str(media_ctx.get(field) or "").strip()
                 if value:
                     keys.add(value)
-            from scaliffy_agent.core_v2.media import resolve_media as _resolve_media
             adapter_pid = str(
                 media_ctx.get("product_id") or media_ctx.get("recognized_product") or ""
             ).strip()
             if adapter_pid:
+                # Adapter verdict wins on every tenant (same-data guarantee).
                 reel_status, reel_product = "FOUND", adapter_pid[:200]
-            else:
+            elif _is_test:
+                from scaliffy_agent.core_v2.media import resolve_media as _resolve_media
                 resolved_media = _resolve_media(keys)
                 reel_status = str(resolved_media.get("status") or "no_media")
                 reel_product = str(resolved_media.get("product_id") or "")[:200]
                 if reel_status == "FOUND" and resolved_media.get("variant") and not state.selected_color:
                     state.patch({"selected_color": str(resolved_media["variant"])[:120]})
+            else:
+                # Prod tenant: curated store mapping (reel_products.json),
+                # never the test catalog (cross-store leak forbidden).
+                try:
+                    from scaliffy_agent.reel_map import resolve_reel_product as _prod_reel
+                    _pr = _prod_reel(store_id=store_id,
+                                     attachments=tuple(attachments or ()),
+                                     media_context=media_ctx)
+                    if _pr.status == "FOUND":
+                        reel_status, reel_product = "FOUND", str(_pr.product_id or "")[:200]
+                    elif _pr.status == "AMBIGUOUS":
+                        reel_status, reel_product = "AMBIGUOUS", ""
+                    else:
+                        reel_status = "unknown_media" if (keys or media_ctx) else "no_media"
+                        reel_product = ""
+                except Exception:
+                    reel_status, reel_product = "no_media", ""
             _ = test_media_map  # legacy alias map superseded by media catalog
             if reel_status == "FOUND" and reel_product:
                 state.patch({"resolved_media_product_id": reel_product})
@@ -375,19 +431,21 @@ class AgentCoreV2:
             reel_owner_is_merchant=reel_owner,
         )
         # 5b. Deterministic photo inventory for photo requests (refs only).
+        # Test-catalog refs never leak to other tenants.
         media_options: list[str] = []
-        try:
-            from scaliffy_agent.core_v2.media import available_media as _avail_media
-            from scaliffy_agent.core_v2.sales import wants_photo as _wants_photo2
-            if _wants_photo2(message.text):
-                _mpid = str(getattr(resolution, "product_id", "") or state.active_product_id or "")
-                _mvar = ""
-                if isinstance(color_status, dict):
-                    _mvar = str(color_status.get("variant") or color_status.get("color") or "")
-                media_options = _avail_media(
-                    product_id=_mpid, variant=_mvar or state.selected_color)
-        except Exception:
-            media_options = []
+        if _is_test:
+            try:
+                from scaliffy_agent.core_v2.media import available_media as _avail_media
+                from scaliffy_agent.core_v2.sales import wants_photo as _wants_photo2
+                if _wants_photo2(message.text):
+                    _mpid = str(getattr(resolution, "product_id", "") or state.active_product_id or "")
+                    _mvar = ""
+                    if isinstance(color_status, dict):
+                        _mvar = str(color_status.get("variant") or color_status.get("color") or "")
+                    media_options = _avail_media(
+                        product_id=_mpid, variant=_mvar or state.selected_color)
+            except Exception:
+                media_options = []
         if media_options:
             evidence["media_options"] = [str(r)[:120] for r in media_options[:4]]
         if reel_status in ("FOUND", "AMBIGUOUS"):
@@ -443,6 +501,11 @@ class AgentCoreV2:
                 resolver_product_id=str(getattr(resolution, "product_id", "") or ""),
             )
             reply_text = checked_text
+            if not _is_test:
+                # Canary fail-closed: prod catalogue always carries prices,
+                # so a money claim with zero grounded evidence is never sent
+                # (missing upstream data must degrade, never hallucinate).
+                _require_canary_grounding(reply_text=checked_text, evidence=evidence)
             reason = f"safe_fallback_{luna_fallback_reason}" if luna_fallback_reason else "v2_ok"
         except RuntimeError as exc:
             if not str(exc).startswith("unsafe_reply:"):
@@ -488,8 +551,10 @@ class AgentCoreV2:
         except Exception:
             pass
         # Order test mode: never create real orders on the test store.
-        if str(order_mode or "test").lower() != "test":
-            order_mode = "test"
+        # Canary prod tenants run order_mode="live" (real order actions
+        # flow to the SaaS adapter); test store stays in test mode.
+        _mode = str(order_mode or "test").lower()
+        order_mode = _mode if _mode in ("test", "live") else "test"
         if isinstance(order_draft, dict) and order_draft:
             order_draft = dict(order_draft)
             order_draft["environment"] = "test"
@@ -543,8 +608,9 @@ class AgentCoreV2:
 
         total_ms = int((time.perf_counter() - total_started) * 1000)
         spark_report = dict(getattr(self, "_last_spark_report", {}) or {})
+        _ver = AGENT_CORE_VERSION_V2 if _is_test else AGENT_CORE_VERSION_CANARY
         trace = {
-            "agent_core_version": AGENT_CORE_VERSION_V2,
+            "agent_core_version": _ver,
             "resolver": str(getattr(resolution, "status", "")),
             "reason": reason if "reason" in dir() else "v2_ok",
             "order_action": order_action,
@@ -568,7 +634,7 @@ class AgentCoreV2:
         result = {
             "execution_id": execution_id,
             "reply": reply_text,
-            "agent_core_version": AGENT_CORE_VERSION_V2,
+            "agent_core_version": _ver,
             "luna_call_count": 1,
             "outbound_count": outbound_count,
             "duplicate_execution": False,

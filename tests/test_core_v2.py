@@ -557,6 +557,73 @@ def test_stage_flows_through_pipeline(tmp_path):
     assert state2.sales_stage == "ready_to_order"
 
 
+def test_prod_refused_without_canary_flag(tmp_path, monkeypatch):
+    monkeypatch.delenv("V2_CANARY_STORES", raising=False)
+    _fresh_db(tmp_path, "nokan.db")
+    from scaliffy_agent.core_v2.config import is_canary_store  # noqa: E402
+    assert not is_canary_store("166510782", "166510782")
+    engine = AgentCoreV2(model=ScriptedLuna("x"))
+    msg = normalize(store_id="166510782", channel="test",
+                    customer_id="c1", source_message_id="m1", text="salam")
+    try:
+        engine.handle(msg)
+    except ValueError as exc:
+        assert "v2_refuses" in str(exc)
+    else:
+        raise AssertionError("prod must be refused without canary flag")
+
+
+def test_canary_never_uses_test_seed(tmp_path, monkeypatch):
+    monkeypatch.setenv("V2_CANARY_STORES", "166510782")
+    _fresh_db(tmp_path, "canary.db")
+    from scaliffy_agent.core_v2.config import is_canary_store  # noqa: E402
+    assert is_canary_store("166510782", "166510782")
+    model = ScriptedLuna("le pack est à 99 MAD")
+    engine = AgentCoreV2(model=model)
+    msg = normalize(store_id="166510782", channel="test",
+                    customer_id="can1", source_message_id="m1",
+                    text="chhal lpack")
+    out = engine.handle(msg, catalogue=None, brain=None,
+                        order_mode="live", canary=True)
+    assert out["agent_core_version"] == "v2_canary"
+    assert out["trace"]["order_mode"] == "live"
+    # No test-tenant numbers may leak into the prod tenant.
+    assert "99" not in out["reply"] and "35" not in out["reply"]
+    assert "179" not in out["reply"]
+
+
+def test_canary_uses_caller_prod_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("V2_CANARY_STORES", "166510782")
+    _fresh_db(tmp_path, "canary2.db")
+    model = ScriptedLuna("le pack est à 99 MAD")
+    engine = AgentCoreV2(model=model)
+    msg = normalize(store_id="166510782", channel="test",
+                    customer_id="can2", source_message_id="m1",
+                    text="chhal lpack")
+    out = engine.handle(
+        msg,
+        catalogue={"store_id": "166510782", "product_id": "pack-adam",
+                   "name": "Pack", "price": "99", "currency": "MAD",
+                   "delivery_price": "35"},
+        brain={"content": "Adam Luxe prod brain", "version": "prod9"},
+        order_mode="live", canary=True)
+    assert out["agent_core_version"] == "v2_canary"
+    assert "99" in out["reply"]  # caller data in -> grounded data out
+
+
+def test_agent_routes_canary_prod_to_v2(tmp_path, monkeypatch):
+    monkeypatch.setenv("V2_CANARY_STORES", "166510782")
+    _fresh_db(tmp_path, "canary3.db")
+    agent = AgentCore(knowledge_store=None, model=ScriptedLuna("ok"))
+    reply = agent.reply(
+        store=StoreContext("166510782", "166510782", "Adam Luxe", Channel.TEST),
+        message=IncomingMessage("m1", "salam", "c1", (), (),
+                                channel=Channel.TEST),
+    )
+    assert reply is not None
+    assert reply.agent_core_version == "v2_canary"
+
+
 def test_color_resolver_string_catalogue_and_aliases():
     from scaliffy_agent.color_status import resolve_color  # noqa: E402
     cat = _seed.test_catalogue()

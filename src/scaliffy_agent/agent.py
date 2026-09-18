@@ -210,8 +210,17 @@ class AgentCore:
             from .core_v2.config import TEST_STORE_ID as _V2_TEST_STORE
         except Exception:
             _V2_TEST_STORE = "625374849"
-        if str(store.store_id or "").strip() == str(_V2_TEST_STORE):
-            return self._reply_with_core_v2(store=store, message=message)
+        try:
+            from .core_v2.config import is_canary_store as _is_canary_store
+            _canary = bool(_is_canary_store(
+                str(store.store_id or ""),
+                str(store.merchant_account_id or "")))
+        except Exception:
+            _canary = False
+        if str(store.store_id or "").strip() == str(_V2_TEST_STORE) or _canary:
+            return self._reply_with_core_v2(
+                store=store, message=message,
+                order_mode=("live" if _canary else "test"), canary=_canary)
 
         if store.merchant_account_id == "166510782":
             return self._reply_with_store_brain(store=store, message=message)
@@ -512,12 +521,14 @@ class AgentCore:
 
     def _reply_with_core_v2(
         self, *, store: StoreContext, message: IncomingMessage,
+        order_mode: str = "test", canary: bool = False,
     ) -> AgentReply:
-        """Isolated Core V2 path — ONLY for test store 625374849.
+        """Core V2 path — test store 625374849 plus explicit canary tenants.
 
         Delegates to scaliffy_agent.core_v2.pipeline.AgentCoreV2 using the
-        SAME model slot (no second AI implementation). Production behavior
-        for every other store is untouched.
+        SAME model slot (no second AI implementation). Canary tenants use
+        ONLY caller-supplied merchant data (never test seed). Production
+        behavior for every other store is untouched.
         """
         from .core_v2.config import AGENT_CORE_VERSION_V2
         from .core_v2.normalizer import normalize as _normalize
@@ -583,7 +594,8 @@ class AgentCore:
             active_order=dict(message.active_order or {}),
             known_customer=dict(message.known_customer or {}),
             media_context=dict(media_ctx),
-            order_mode="test",
+            order_mode=order_mode,
+            canary=canary,
         )
         script = detect_reply_script(message.text or "")
         trace = dict(out.get("trace") or {})
@@ -596,6 +608,7 @@ class AgentCore:
             text=str(out.get("reply") or ""),
             requested_model=str(trace.get("model_requested") or ""),
             resolved_model=str(trace.get("model_resolved") or ""),
+            agent_core_version=str(out.get("agent_core_version") or AGENT_CORE_VERSION_V2),
             script=script,
             used_rag=False,
             reason=str(trace.get("reason") or "v2_ok"),
@@ -611,7 +624,6 @@ class AgentCore:
             memory_called=True,
             order_action=order_action,  # type: ignore[arg-type]
             order_draft=dict(order_draft),
-            agent_core_version=AGENT_CORE_VERSION_V2,
         )
 
     def _reply_with_store_brain(
