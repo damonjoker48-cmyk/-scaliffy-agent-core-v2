@@ -184,10 +184,11 @@ def answer_once(*, agent_input: dict, evidence: dict | None = None,
     ]
     started = time.perf_counter()
     try:
+        # Cap includes hidden reasoning: leave room for reasoning + reply.
         response = client.chat.completions.create(
             model=model,
             temperature=0.3,
-            max_tokens=500,
+            max_tokens=2000,
             messages=messages,
             response_format=_response_schema(),
             timeout=timeout_s,
@@ -199,7 +200,7 @@ def answer_once(*, agent_input: dict, evidence: dict | None = None,
             response = client.chat.completions.create(
                 model=model,
                 temperature=0.3,
-                max_tokens=500,
+                max_tokens=2000,
                 messages=[
                     {"role": "system", "content": SYSTEM_KERNEL},
                     {"role": "user", "content": user_text + '\nRespond with ONE JSON object only, e.g. {"reply": "...", "order_action": "none"}.'},
