@@ -17,11 +17,14 @@ Vercel note: set CORE_V2_DB_PATH to a /tmp path for writable storage.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import tempfile
 import threading
 import time
+
+logger = logging.getLogger("scaliffy.core_v2")
 
 _lock = threading.Lock()
 _DB_PATH: str | None = None
@@ -125,6 +128,13 @@ def init_db() -> None:
 
 def reset_store(*, store_id: str = "") -> None:
     """Test helper: clear V2 rows (optionally scoped to one store)."""
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            _t_reset(_tc, store_id=store_id)
+            return
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=reset_store")
     init_db()
     conn = _connect()
     try:
@@ -149,6 +159,12 @@ def reset_store(*, store_id: str = "") -> None:
 
 # ---------------------------------------------------------------- session ---
 def session_load(*, store_id: str, channel: str, customer_id: str) -> dict:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_session_load(_tc, store_id=store_id, channel=channel, customer_id=customer_id)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=session_load")
     init_db()
     conn = _connect()
     try:
@@ -168,6 +184,13 @@ def session_load(*, store_id: str, channel: str, customer_id: str) -> dict:
 
 
 def session_save(*, store_id: str, channel: str, customer_id: str, state: dict) -> None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            _t_session_save(_tc, store_id=store_id, channel=channel, customer_id=customer_id, state=state)
+            return
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=session_save")
     def _do() -> None:
         init_db()
         conn = _connect()
@@ -188,6 +211,12 @@ def session_save(*, store_id: str, channel: str, customer_id: str, state: dict) 
 def memory_recent(
     *, store_id: str, channel: str, customer_id: str, limit: int = 6
 ) -> list[dict]:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_memory_recent(_tc, store_id=store_id, channel=channel, customer_id=customer_id, limit=limit)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=memory_recent")
     init_db()
     conn = _connect()
     try:
@@ -211,6 +240,12 @@ def memory_append(
         return -1
     if str(role) not in ("customer", "assistant"):
         raise ValueError("memory_role_invalid")
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_memory_append(_tc, store_id=store_id, channel=channel, customer_id=customer_id, role=str(role), text=cleaned)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=memory_append")
     def _do() -> int:
         init_db()
         with _lock:
@@ -250,6 +285,13 @@ def memory_append(
 
 
 def memory_clear(*, store_id: str, channel: str, customer_id: str) -> None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            _t_memory_clear(_tc, store_id=store_id, channel=channel, customer_id=customer_id)
+            return
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=memory_clear")
     init_db()
     conn = _connect()
     try:
@@ -264,6 +306,12 @@ def memory_clear(*, store_id: str, channel: str, customer_id: str) -> None:
 # --------------------------------------------------------------- outbound ---
 def outbound_claim(*, outbound_key: str) -> bool:
     """Atomic claim. True = caller owns the send; False = already claimed."""
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_outbound_claim(_tc, outbound_key=outbound_key)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=outbound_claim")
     def _do() -> bool:
         init_db()
         conn = _connect()
@@ -280,6 +328,12 @@ def outbound_claim(*, outbound_key: str) -> bool:
 
 
 def outbound_status(*, outbound_key: str) -> dict | None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_outbound_status(_tc, outbound_key=outbound_key)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=outbound_status")
     init_db()
     conn = _connect()
     try:
@@ -294,6 +348,13 @@ def outbound_status(*, outbound_key: str) -> dict | None:
 
 
 def outbound_mark_success(*, outbound_key: str, reply: str) -> None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            _t_outbound_mark_success(_tc, outbound_key=outbound_key, reply=reply)
+            return
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=outbound_mark_success")
     def _do() -> None:
         init_db()
         conn = _connect()
@@ -311,6 +372,12 @@ def outbound_mark_success(*, outbound_key: str, reply: str) -> None:
 
 # -------------------------------------------------------------- executions --
 def exec_get(*, execution_id: str) -> dict | None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_exec_get(_tc, execution_id=execution_id)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=exec_get")
     init_db()
     conn = _connect()
     try:
@@ -329,6 +396,13 @@ def exec_get(*, execution_id: str) -> dict | None:
 
 
 def exec_put(*, execution_id: str, result: dict) -> None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            _t_exec_put(_tc, execution_id=execution_id, result=result)
+            return
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=exec_put")
     def _do() -> None:
         init_db()
         conn = _connect()
@@ -346,6 +420,12 @@ def exec_put(*, execution_id: str, result: dict) -> None:
 
 # ------------------------------------------------------------------ locks ---
 def lock_acquire(*, lock_key: str, owner: str, lease_seconds: float = 20.0) -> bool:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            return _t_lock_acquire(_tc, lock_key=lock_key, owner=owner, lease_seconds=lease_seconds)
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=lock_acquire")
     def _do() -> bool:
         now = time.time()
         expiry = now + max(1.0, float(lease_seconds or 20.0))
@@ -380,6 +460,13 @@ def lock_acquire(*, lock_key: str, owner: str, lease_seconds: float = 20.0) -> b
 
 
 def lock_release(*, lock_key: str, owner: str) -> None:
+    _tc = _turso_creds()
+    if _tc[0]:
+        try:
+            _t_lock_release(_tc, lock_key=lock_key, owner=owner)
+            return
+        except Exception:
+            logger.warning("v2_turso_fallback=sqlite op=lock_release")
     def _do() -> None:
         init_db()
         conn = _connect()
@@ -393,3 +480,304 @@ def lock_release(*, lock_key: str, owner: str) -> None:
         _retryable(_do)
     except Exception:
         pass
+
+
+# ------------------------------------------------------- turso backend ---
+# Active automatically when TURSO_DATABASE_URL + TURSO_AUTH_TOKEN are set
+# (Vercel: shared durable state across instances/lambdas — never /tmp).
+# Otherwise the local SQLite path above is used (dev/tests/single host).
+# Same tables, same function signatures; multi-statement batches run as ONE
+# Hrana pipeline round trip. Any Turso failure falls back to SQLite
+# (fail-open: today's single-instance behavior, never a 500).
+_TURSO_DDL_DONE: set[str] = set()
+
+_DDL_STATEMENTS: tuple[str, ...] = (
+    "CREATE TABLE IF NOT EXISTS v2_session (store_id TEXT NOT NULL, channel TEXT NOT NULL, customer_id TEXT NOT NULL, state_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL DEFAULT 0, PRIMARY KEY (store_id, channel, customer_id))",
+    "CREATE TABLE IF NOT EXISTS v2_memory (store_id TEXT NOT NULL, channel TEXT NOT NULL, customer_id TEXT NOT NULL, seq INTEGER NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL, ts REAL NOT NULL DEFAULT 0, PRIMARY KEY (store_id, channel, customer_id, seq))",
+    "CREATE INDEX IF NOT EXISTS idx_v2_memory_lookup ON v2_memory (store_id, channel, customer_id, seq)",
+    "CREATE TABLE IF NOT EXISTS v2_outbound (outbound_key TEXT PRIMARY KEY, status TEXT NOT NULL, reply TEXT NOT NULL DEFAULT '', ts REAL NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS v2_exec (execution_id TEXT PRIMARY KEY, result_json TEXT NOT NULL DEFAULT '{}', ts REAL NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS v2_lock (lock_key TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', expires_at REAL NOT NULL DEFAULT 0)",
+)
+
+
+def backend_name() -> str:
+    """Secret-free backend label for observability (never a value)."""
+    url, token = _turso_creds()
+    return "turso" if (url and token) else "sqlite"
+
+
+def _turso_creds() -> tuple[str, str]:
+    try:
+        url = (os.environ.get("TURSO_DATABASE_URL") or "").strip().rstrip("/")
+        token = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
+    except Exception:
+        return "", ""
+    if not url or not token or url == "[SENSITIVE]" or token == "[SENSITIVE]":
+        return "", ""
+    return url, token
+
+
+def _t_arg(value: object) -> dict:
+    if value is None:
+        return {"type": "null", "value": None}
+    if isinstance(value, bool):
+        return {"type": "integer", "value": str(int(value))}
+    if isinstance(value, int):
+        return {"type": "integer", "value": str(value)}
+    if isinstance(value, float):
+        return {"type": "float", "value": repr(value)}
+    return {"type": "text", "value": str(value)}
+
+
+def _t_run(url: str, token: str, statements: list[tuple[str, list]]) -> list[dict]:
+    """ONE Hrana pipeline round trip. Returns [{rows, affected}]."""
+    import urllib.request as _urlreq
+
+    payload = {
+        "requests": [
+            {"type": "execute", "stmt": {"sql": sql, "args": [_t_arg(a) for a in args]}}
+            for sql, args in statements
+        ]
+    }
+    data = json.dumps(payload).encode("utf-8")
+
+    def _once() -> dict:
+        req = _urlreq.Request(
+            url + "/v2/pipeline", data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        req.add_header("Authorization", f"Bearer {token}")
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    last: Exception | None = None
+    body: dict | None = None
+    delay = 0.15
+    for _ in range(3):
+        try:
+            body = _once()
+            break
+        except Exception as exc:  # network only; SQL errors arrive as payload
+            last = exc
+            if "URLError" not in type(exc).__name__ and not isinstance(exc, OSError):
+                raise
+            time.sleep(delay)
+            delay *= 2
+    if body is None:
+        raise last or RuntimeError("turso_unreachable")
+    if isinstance(body, dict) and body.get("error"):
+        raise RuntimeError(f"turso_error:{str(body.get('error'))[:200]}")
+    out: list[dict] = []
+    for item in (body.get("results", []) if isinstance(body, dict) else []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "error" or item.get("error"):
+            raise RuntimeError(f"turso_sql_error:{str(item.get('error'))[:200]}")
+        res = ((item.get("response") or {}).get("result") or {}) if isinstance(item.get("response"), dict) else {}
+        cols = [c.get("name", "") for c in (res.get("cols") or []) if isinstance(c, dict)]
+        rows = []
+        for row in res.get("rows") or []:
+            vals = [(v.get("value") if isinstance(v, dict) else v) for v in row]
+            rows.append(dict(zip(cols, vals)))
+        try:
+            affected = int(res.get("affected_row_count") or 0)
+        except (TypeError, ValueError):
+            affected = 0
+        out.append({"rows": rows, "affected": affected})
+    return out
+
+
+def _t_init(url: str, token: str) -> None:
+    if url in _TURSO_DDL_DONE:
+        return
+    with _lock:
+        if url in _TURSO_DDL_DONE:
+            return
+        _t_run(url, token, [(sql, []) for sql in _DDL_STATEMENTS])
+        _TURSO_DDL_DONE.add(url)
+
+
+def _t_reset(creds: tuple[str, str], *, store_id: str = "") -> None:
+    url, token = creds
+    _t_init(url, token)
+    if store_id:
+        _t_run(url, token, [
+            ("DELETE FROM v2_session WHERE store_id = ?", [store_id]),
+            ("DELETE FROM v2_memory WHERE store_id = ?", [store_id]),
+            ("DELETE FROM v2_outbound WHERE outbound_key LIKE ?", [f"{store_id}:%"]),
+            ("DELETE FROM v2_exec WHERE execution_id LIKE ?", [f"{store_id}:%"]),
+        ])
+    else:
+        _t_run(url, token, [
+            ("DELETE FROM v2_session", []),
+            ("DELETE FROM v2_memory", []),
+            ("DELETE FROM v2_outbound", []),
+            ("DELETE FROM v2_exec", []),
+            ("DELETE FROM v2_lock", []),
+        ])
+
+
+def _t_session_load(creds: tuple[str, str], *, store_id: str, channel: str, customer_id: str) -> dict:
+    url, token = creds
+    _t_init(url, token)
+    res = _t_run(url, token, [(
+        "SELECT state_json FROM v2_session WHERE store_id=? AND channel=? AND customer_id=?",
+        [store_id, channel, customer_id],
+    )])
+    rows = res[0]["rows"] if res else []
+    if not rows:
+        return {}
+    try:
+        data = json.loads(rows[0].get("state_json") or "{}")
+        return data if isinstance(data, dict) else {}
+    except (ValueError, TypeError, AttributeError):
+        return {}
+
+
+def _t_session_save(creds: tuple[str, str], *, store_id: str, channel: str, customer_id: str, state: dict) -> None:
+    url, token = creds
+    _t_init(url, token)
+    _t_run(url, token, [(
+        "INSERT INTO v2_session (store_id, channel, customer_id, state_json, updated_at) "
+        "VALUES (?,?,?,?,?) "
+        "ON CONFLICT (store_id, channel, customer_id) DO UPDATE SET "
+        "state_json=excluded.state_json, updated_at=excluded.updated_at",
+        [store_id, channel, customer_id, json.dumps(state, ensure_ascii=False), time.time()],
+    )])
+
+
+def _t_memory_recent(creds: tuple[str, str], *, store_id: str, channel: str, customer_id: str, limit: int = 6) -> list[dict]:
+    url, token = creds
+    _t_init(url, token)
+    res = _t_run(url, token, [(
+        "SELECT role, text FROM v2_memory WHERE store_id=? AND channel=? AND customer_id=? "
+        "ORDER BY seq DESC LIMIT ?",
+        [store_id, channel, customer_id, max(1, int(limit or 6))],
+    )])
+    rows = res[0]["rows"] if res else []
+    return [{"role": r.get("role"), "text": r.get("text")} for r in reversed(rows)]
+
+
+def _t_memory_append(creds: tuple[str, str], *, store_id: str, channel: str, customer_id: str, role: str, text: str) -> int:
+    url, token = creds
+    _t_init(url, token)
+    now = time.time()
+    batch = [
+        ("INSERT INTO v2_memory (store_id, channel, customer_id, seq, role, text, ts) "
+         "VALUES (?,?,?,(SELECT COALESCE(MAX(seq),0)+1 FROM v2_memory WHERE store_id=? AND channel=? AND customer_id=?),?,?,?)",
+         [store_id, channel, customer_id, store_id, channel, customer_id, role, text, now]),
+        ("DELETE FROM v2_memory WHERE store_id=? AND channel=? AND customer_id=? "
+         "AND seq <= (SELECT COALESCE(MAX(seq),0) - 400 FROM v2_memory "
+         "WHERE store_id=? AND channel=? AND customer_id=?)",
+         [store_id, channel, customer_id, store_id, channel, customer_id]),
+        ("SELECT COALESCE(MAX(seq),0) AS seq FROM v2_memory WHERE store_id=? AND channel=? AND customer_id=?",
+         [store_id, channel, customer_id]),
+    ]
+    last: Exception | None = None
+    for _ in range(3):  # concurrent writers may collide on seq; recompute
+        try:
+            res = _t_run(url, token, batch)
+            rows = res[2]["rows"] if len(res) > 2 else []
+            try:
+                return int((rows[0].get("seq") if rows else 0) or 0)
+            except (TypeError, ValueError, AttributeError):
+                return 0
+        except Exception as exc:
+            last = exc
+            if "turso_sql_error" not in str(exc):
+                raise
+            time.sleep(0.05)
+    raise last or RuntimeError("turso_memory_append_failed")
+
+
+def _t_memory_clear(creds: tuple[str, str], *, store_id: str, channel: str, customer_id: str) -> None:
+    url, token = creds
+    _t_init(url, token)
+    _t_run(url, token, [(
+        "DELETE FROM v2_memory WHERE store_id=? AND channel=? AND customer_id=?",
+        [store_id, channel, customer_id],
+    )])
+
+
+def _t_outbound_claim(creds: tuple[str, str], *, outbound_key: str) -> bool:
+    url, token = creds
+    _t_init(url, token)
+    res = _t_run(url, token, [(
+        "INSERT INTO v2_outbound (outbound_key, status, reply, ts) VALUES (?,?,?,?) "
+        "ON CONFLICT (outbound_key) DO NOTHING",
+        [outbound_key, "claimed", "", time.time()],
+    )])
+    return bool(res and res[0]["affected"] == 1)
+
+
+def _t_outbound_status(creds: tuple[str, str], *, outbound_key: str) -> dict | None:
+    url, token = creds
+    _t_init(url, token)
+    res = _t_run(url, token, [(
+        "SELECT status, reply FROM v2_outbound WHERE outbound_key=?", [outbound_key],
+    )])
+    rows = res[0]["rows"] if res else []
+    if not rows:
+        return None
+    return {"status": rows[0].get("status"), "reply": rows[0].get("reply")}
+
+
+def _t_outbound_mark_success(creds: tuple[str, str], *, outbound_key: str, reply: str) -> None:
+    url, token = creds
+    _t_init(url, token)
+    now = time.time()
+    _t_run(url, token, [(
+        "INSERT INTO v2_outbound (outbound_key, status, reply, ts) VALUES (?,?,?,?) "
+        "ON CONFLICT (outbound_key) DO UPDATE SET status='success', reply=excluded.reply, ts=excluded.ts",
+        [outbound_key, "success", str(reply or "")[:4000], now],
+    )])
+
+
+def _t_exec_get(creds: tuple[str, str], *, execution_id: str) -> dict | None:
+    url, token = creds
+    _t_init(url, token)
+    res = _t_run(url, token, [(
+        "SELECT result_json FROM v2_exec WHERE execution_id=?", [execution_id],
+    )])
+    rows = res[0]["rows"] if res else []
+    if not rows:
+        return None
+    try:
+        data = json.loads(rows[0].get("result_json") or "{}")
+        return data if isinstance(data, dict) else None
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _t_exec_put(creds: tuple[str, str], *, execution_id: str, result: dict) -> None:
+    url, token = creds
+    _t_init(url, token)
+    _t_run(url, token, [(
+        "INSERT INTO v2_exec (execution_id, result_json, ts) VALUES (?,?,?) "
+        "ON CONFLICT (execution_id) DO UPDATE SET result_json=excluded.result_json, ts=excluded.ts",
+        [execution_id, json.dumps(result, ensure_ascii=False), time.time()],
+    )])
+
+
+def _t_lock_acquire(creds: tuple[str, str], *, lock_key: str, owner: str, lease_seconds: float = 20.0) -> bool:
+    url, token = creds
+    _t_init(url, token)
+    now = time.time()
+    expiry = now + max(1.0, float(lease_seconds or 20.0))
+    res = _t_run(url, token, [(
+        "INSERT INTO v2_lock (lock_key, owner, expires_at) VALUES (?,?,?) "
+        "ON CONFLICT (lock_key) DO UPDATE SET owner=excluded.owner, expires_at=excluded.expires_at "
+        "WHERE v2_lock.expires_at <= ?",
+        [lock_key, owner, expiry, now],
+    )])
+    return bool(res and res[0]["affected"] == 1)
+
+
+def _t_lock_release(creds: tuple[str, str], *, lock_key: str, owner: str) -> None:
+    url, token = creds
+    _t_init(url, token)
+    _t_run(url, token, [(
+        "DELETE FROM v2_lock WHERE lock_key=? AND owner=?", [lock_key, owner],
+    )])
