@@ -24,6 +24,31 @@ def _norm(text: str) -> str:
     )
 
 
+# Deterministic Darija/French/Arabic color aliases (linguistic only:
+# they map spellings to the merchant's canonical variant, never invent one).
+_COLOR_ALIASES: dict[str, tuple[str, ...]] = {
+    "noir": ("noir", "black", "khal", "khel", "lakhal", "lakhel", "kahal",
+             "أسود", "اسود", "لكحل", "كحل"),
+    "abyed": ("abyed", "abyad", "byed", "lbyed", "labyed", "blanc", "white",
+              "أبيض", "ابيض", "لبيض", "بيض"),
+    "rouge": ("rouge", "red", "hamra", "حمراء", "حمر", "أحمر", "احمر"),
+    "bleu": ("bleu", "blue", "زرقاء", "زرق", "أزرق", "ازرق"),
+    "vert": ("vert", "green", "خضراء", "خضر", "أخضر", "اخضر"),
+    "rose": ("rose", "pink", "وردي", "وردية"),
+    "gris": ("gris", "grey", "gray", "رمادي"),
+    "beige": ("beige", "بيج"),
+    "marron": ("marron", "brown", "بني"),
+}
+
+
+def _aliases_for(label: str) -> tuple[str, ...]:
+    norm = _norm(label)
+    for canonical, aliases in _COLOR_ALIASES.items():
+        if norm == canonical or norm in {_norm(a) for a in aliases}:
+            return aliases
+    return ()
+
+
 def available_colors(catalogue: dict | None) -> list[dict]:
     """Exact color options from catalogue structures (verbatim, no invention)."""
     catalogue = catalogue if isinstance(catalogue, dict) else {}
@@ -43,19 +68,28 @@ def available_colors(catalogue: dict | None) -> list[dict]:
                                      "aliases": aliases[:16]})
     for key in ("variants", "colors", "available_colors"):
         values = catalogue.get(key)
+        items: list = []
         if isinstance(values, list):
-            for item in values:
-                label = str(item if isinstance(item, str) else
-                              (item.get("color") or item.get("name") or "")).strip()
-                if label:
-                    found.setdefault(label, {"color": label[:120], "variant_id": "",
-                                             "aliases": []})
+            items = list(values)
+        elif isinstance(values, str):
+            # Adapter snapshots often carry variants as a flat string
+            # ("noir,abyed"): split deterministically, same result.
+            items = [part for part in re.split(r"[,;/|]", values)]
+        for item in items:
+            label = str(item if isinstance(item, str) else
+                          (item.get("color") or item.get("name") or "")).strip()
+            if label:
+                found.setdefault(label, {"color": label[:120], "variant_id": "",
+                                         "aliases": []})
     return list(found.values())[:24]
+
+
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 
 
 def _mentions(text: str, labels: list[str]) -> str:
     """Return the first listed label named in text (canonical match)."""
-    norm = " " + _norm(text) + " "
+    norm = " " + _PUNCT_RE.sub(" ", _norm(text)) + " "
     for label in labels:
         needle = _norm(label)
         if needle and f" {needle} " in norm:
@@ -79,7 +113,7 @@ def resolve_color(*, message_text: str, history: tuple | list = (),
     for option in options:
         labels.append(option["color"])
         alias_to_option[_norm(option["color"])] = option
-        for alias in option.get("aliases") or []:
+        for alias in list(option.get("aliases") or []) + list(_aliases_for(option["color"])):
             labels.append(alias)
             alias_to_option.setdefault(_norm(alias), option)
     # Current message wins.

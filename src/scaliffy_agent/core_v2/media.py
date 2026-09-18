@@ -19,6 +19,11 @@ MEDIA_CATALOG: tuple[dict, ...] = (
      "variant": "noir", "media_type": "reel", "priority": 1},
     {"media_reference": "reel_pack_duck_07", "product_id": "pack-1",
      "variant": "", "media_type": "reel", "priority": 2},
+    # Generic pack photos (no variant known yet).
+    {"media_reference": "pack_photo_01", "product_id": "pack-1",
+     "variant": "", "media_type": "photo", "priority": 1},
+    {"media_reference": "pack_photo_02", "product_id": "pack-1",
+     "variant": "", "media_type": "photo", "priority": 2},
     # Deterministic photo inventory for the pack variants.
     {"media_reference": "black_photo_01", "product_id": "pack-1",
      "variant": "noir", "media_type": "photo", "priority": 1},

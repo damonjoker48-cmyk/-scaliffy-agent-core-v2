@@ -557,6 +557,23 @@ def test_stage_flows_through_pipeline(tmp_path):
     assert state2.sales_stage == "ready_to_order"
 
 
+def test_color_resolver_string_catalogue_and_aliases():
+    from scaliffy_agent.color_status import resolve_color  # noqa: E402
+    cat = _seed.test_catalogue()
+    assert resolve_color(message_text="kayn noir?", history=(),
+                         catalogue=cat, stored_variant="")["status"] == "confirmed"
+    assert resolve_color(message_text="bghit lbyed", history=(),
+                         catalogue=cat, stored_variant="")["color"] == "abyed"
+    assert resolve_color(message_text="salam", history=(),
+                         catalogue=cat, stored_variant="")["status"] == "missing"
+
+
+def test_photo_inventory_refs_only():
+    from scaliffy_agent.core_v2.media import available_media  # noqa: E402
+    assert available_media(product_id="pack-1") == ["pack_photo_01", "pack_photo_02"]
+    assert available_media(product_id="pack-1", variant="noir")[0] == "black_photo_01"
+
+
 def test_vocabulary_bans_new_terms():
     from scaliffy_agent.validation import merchant_vocabulary  # noqa: E402
     out = merchant_vocabulary("le ta9am et un set avec bracelet")
