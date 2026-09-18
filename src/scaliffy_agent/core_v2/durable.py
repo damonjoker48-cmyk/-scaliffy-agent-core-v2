@@ -521,14 +521,16 @@ def _turso_creds() -> tuple[str, str]:
 
 
 def _t_arg(value: object) -> dict:
+    # Hrana JSON protocol: integers ride as strings (i64-safe), floats as
+    # JSON numbers (a float-as-string is a 400), null has no value key.
     if value is None:
-        return {"type": "null", "value": None}
+        return {"type": "null"}
     if isinstance(value, bool):
         return {"type": "integer", "value": str(int(value))}
     if isinstance(value, int):
         return {"type": "integer", "value": str(value)}
     if isinstance(value, float):
-        return {"type": "float", "value": repr(value)}
+        return {"type": "float", "value": float(value)}
     return {"type": "text", "value": str(value)}
 
 
