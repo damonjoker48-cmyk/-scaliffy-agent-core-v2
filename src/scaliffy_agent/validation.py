@@ -49,8 +49,12 @@ _BRACELET_TERMS = (
     ("سوارات", "ݣورميطات"),
     ("إسورة", "ݣورميطة"),
     ("سوار", "ݣورميطة"),
+    ("براسليات", "ݣورميطات"),
+    ("براسلي", "ݣورميطة"),
     ("bracelets", "gourmettas"),
     ("bracelet", "gourmetta"),
+    ("brassli", "gourmetta"),
+    ("brasli", "gourmetta"),
     ("gourmette", "gourmetta"),
     ("gourmettes", "gourmettas"),
 )
