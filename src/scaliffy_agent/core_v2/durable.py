@@ -513,6 +513,8 @@ def _turso_creds() -> tuple[str, str]:
         token = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
     except Exception:
         return "", ""
+    if url.startswith("libsql://"):  # Hrana HTTP endpoint uses https
+        url = "https://" + url[len("libsql://"):]
     if not url or not token or url == "[SENSITIVE]" or token == "[SENSITIVE]":
         return "", ""
     return url, token

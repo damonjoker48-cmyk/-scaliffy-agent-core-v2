@@ -85,6 +85,7 @@ def collect_files() -> list[dict]:
                 out.append({
                     "file": top.replace(os.sep, "/"),
                     "data": base64.b64encode(fh.read()).decode("ascii"),
+                    "encoding": "base64",
                 })
         elif os.path.isdir(full):
             for dirpath, dirnames, filenames in os.walk(full):
@@ -100,11 +101,53 @@ def collect_files() -> list[dict]:
                         out.append({
                             "file": rel,
                             "data": base64.b64encode(fh.read()).decode("ascii"),
+                            "encoding": "base64",
                         })
     return out
 
 
+def logs_mode(dep_id: str) -> None:
+    secrets = load_dotenv(ENV_FILE)
+    token = secrets.get("VERCEL_DEPLOY_TOKEN", "")
+    if not token:
+        fail_missing("VERCEL_DEPLOY_TOKEN")
+    status, events = api(
+        "GET", f"/v2/deployments/{dep_id}/events?direction=forward&limit=1000",
+        token,
+    )
+    print(f"EVENTS_STATUS={status}", flush=True)
+    if not isinstance(events, list):
+        print(f"EVENTS_BODY={str(events)[:500]}", flush=True)
+        return
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        payload = item.get("payload", {})
+        text = payload.get("text", "") if isinstance(payload, dict) else ""
+        if text:
+            for line in str(text).splitlines():
+                print(f"LOG|{line[:400]}", flush=True)
+
+
 def main() -> None:
+    if "--logs" in sys.argv:
+        idx = sys.argv.index("--logs")
+        if idx + 1 >= len(sys.argv):
+            print("LOGS_USAGE=deploy_vercel.py --logs DEPLOYMENT_ID", flush=True)
+            raise SystemExit(2)
+        logs_mode(sys.argv[idx + 1])
+        return
+    if "--unprotect" in sys.argv:
+        secrets = load_dotenv(ENV_FILE)
+        token = secrets.get("VERCEL_DEPLOY_TOKEN", "")
+        if not token:
+            fail_missing("VERCEL_DEPLOY_TOKEN")
+        project_name = secrets.get("VERCEL_PROJECT_NAME", "") or PROJECT_DEFAULT
+        st, proj = api("GET", f"/v9/projects/{project_name}", token)
+        pid = str(proj.get("id")) if isinstance(proj, dict) else ""
+        st2, body = api("PATCH", f"/v9/projects/{pid}", token, {"ssoProtection": None})
+        print(f"UNPROTECT status={st2}", flush=True)
+        return
     skip_deploy = "--skip-deploy" in sys.argv
     secrets = load_dotenv(ENV_FILE)
     token = secrets.get("VERCEL_DEPLOY_TOKEN", "")
@@ -127,6 +170,10 @@ def main() -> None:
     else:
         print(f"PROJECT_LOOKUP_FAILED status={status}", flush=True)
         raise SystemExit(1)
+
+    # 1b. Pin framework on the project (API-created projects stay null).
+    st, _ = api("PATCH", f"/v9/projects/{project_id}", token, {"framework": "python"})
+    print(f"FRAMEWORK_PIN status={st}", flush=True)
 
     # 2. Upsert env vars (names only in output; values never printed).
     desired: dict[str, str] = {}
@@ -172,14 +219,15 @@ def main() -> None:
     # 3. Deploy.
     files = collect_files()
     print(f"FILES={len(files)}", flush=True)
-    status, dep = api("POST", "/v13/deployments", token, {
+    status, dep = api("POST", "/v13/deployments?skipAutoDetectionConfirmation=1", token, {
         "name": project_name,
         "project": project_id,
         "target": "production",
+        "projectSettings": {"framework": "python"},
         "files": files,
     })
     if status not in (200, 201) or not isinstance(dep, dict) or not dep.get("id"):
-        print(f"DEPLOY_CREATE_FAILED status={status}", flush=True)
+        print(f"DEPLOY_CREATE_FAILED status={status} detail={str(dep)[:500]}", flush=True)
         raise SystemExit(1)
     dep_id = str(dep["id"])
     url = str(dep.get("url") or "")

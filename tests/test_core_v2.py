@@ -457,3 +457,34 @@ def test_concurrency_1_10_25_50_100(tmp_path):
         assert summary["success_rate"] == 1.0
         assert summary["leaks"] == 0
         print(f"\nCONC_{n}:", summary["latency"], "turns=", summary["turns"])
+
+
+class _RaisingLuna:
+    """Luna double whose single call raises unsafe (real-model shape)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.last_order_action = "none"
+        self.last_order_draft = {}
+        self.last_media_action = "none"
+        for name in ("last_input_tokens", "last_output_tokens", "last_llm_latency_ms"):
+            setattr(self, name, 5)
+
+    def answer(self, **kwargs):
+        self.calls += 1
+        raise RuntimeError("unsafe_reply:ungrounded_price")
+
+
+def test_luna_call_failure_never_500s(tmp_path):
+    _fresh_db(tmp_path, "lunafail.db")
+    model = _RaisingLuna()
+    client = V2TestClient("fall1", model=model)
+    result = client.send("chhal tawsil?")
+    assert model.calls == 1
+    assert result.luna_call_count == 1
+    assert result.outbound_count == 1
+    assert result.reply.strip()
+    assert "35" in result.reply
+    price_result = client.send("ماهو سعر الباك")
+    assert price_result.reply.strip()
+    assert price_result.luna_call_count == 1

@@ -324,6 +324,11 @@ class AgentCoreV2:
             resolver_product_id=str(getattr(resolution, "product_id", "") or ""),
         )
         luna_ms = int((time.perf_counter() - luna_started) * 1000)
+        luna_fallback_reason = ""
+        try:
+            luna_fallback_reason = str((luna_extras or {}).pop("_luna_fallback_reason", "") or "")
+        except Exception:
+            luna_fallback_reason = ""
 
         # 8. Validate (deterministic, NO second Luna). Safe fallback on
         #    violation: short honest clarification, HTTP 200 semantics.
@@ -346,7 +351,7 @@ class AgentCoreV2:
                 resolver_product_id=str(getattr(resolution, "product_id", "") or ""),
             )
             reply_text = checked_text
-            reason = "v2_ok"
+            reason = f"safe_fallback_{luna_fallback_reason}" if luna_fallback_reason else "v2_ok"
         except RuntimeError as exc:
             if not str(exc).startswith("unsafe_reply:"):
                 raise
@@ -531,8 +536,34 @@ class AgentCoreV2:
                 "media_action": str(getattr(self.model, "last_media_action", "none") or "none"),
             }
             return str(answer or ""), extras
-        except Exception:
-            raise
+        except Exception as exc:
+            # A Luna-call failure (unsafe reply, empty/malformed output,
+            # provider error) must NEVER become a customer-facing 500.
+            # Degrade to the honest intent-based fallback; the Luna call
+            # still counts as the ONE call of this turn.
+            raw = str(exc)
+            if raw.startswith("unsafe_reply:"):
+                failure = "unsafe_" + raw.split(":", 1)[-1]
+            else:
+                failure = f"luna_error_{type(exc).__name__}"
+            try:
+                from scaliffy_agent.evidence import (
+                    is_price_intent as _is_price,
+                    is_shipping_intent as _is_ship,
+                )
+                delivery = str(evidence.get("delivery_price") or "").strip()
+                if _is_ship(message.text) and delivery and delivery != "UNKNOWN":
+                    fallback = f"التوصيل {delivery} درهم لجميع المدن."
+                elif _is_price(message.text):
+                    fallback = "الباك متوفر، قوليا شحال بغيتي (واحد ولا جوج) ونعطيك الثمن بالضبط."
+                else:
+                    fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
+            except Exception:
+                fallback = "واخا، عاود سولني على الباك ونعطيك المعلومة بالضبط."
+            return fallback, {
+                "order_action": "none", "order_draft": {}, "media_action": "none",
+                "_luna_fallback_reason": failure,
+            }
 
 
 def _deterministic_reply(*, evidence: dict, text: str) -> str:
