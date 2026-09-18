@@ -25,9 +25,10 @@ def adam_test_brain_content() -> str:
     return (
         "Adam Luxe (test clone for 625374849). Le pack (الباك) se vend 99 MAD "
         "avec 1 gourmetta (ݣورميطة) OFFERTE — offre temporaire en cours. "
-        "Deux packs 179 MAD avec 2 gourmettas offertes (offre temporaire). "
-        "Livraison 35 MAD partout au Maroc, y compris Marrakech — no free "
-        "shipping, no city exception, no quantity shipping exception. "
+        "Deux packs 179 MAD TOUT INCLUS (livraison offerte dans l'offre) "
+        "avec 2 gourmettas offertes (offre temporaire). "
+        "Livraison 35 MAD partout au Maroc, y compris Marrakech — no general "
+        "free shipping, no city exception. "
         "Tone: warm Moroccan Darija, natural, concise, 1-3 short lines. "
         "Product words: pack / الباك; gift words: gourmetta / ݣورميطة."
     )
