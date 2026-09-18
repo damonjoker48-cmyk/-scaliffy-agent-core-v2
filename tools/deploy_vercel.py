@@ -176,10 +176,20 @@ def main() -> None:
     print(f"FRAMEWORK_PIN status={st}", flush=True)
 
     # 2. Upsert env vars (names only in output; values never printed).
-    desired: dict[str, str] = {}
-    for key in ("OPENROUTER_API_KEY", "TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"):
-        if secrets.get(key):
-            desired[key] = secrets[key]
+    # Only keys present locally are synced; legacy RAG vars stay out unless
+    # explicitly provided (V2 test store does not use Pinecone).
+    SYNC_KEYS = (
+        "OPENROUTER_API_KEY", "TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN",
+        "META_APP_ID", "META_APP_SECRET", "META_AGENT_CORE_VERIFY_TOKEN",
+        "META_GRAPH_VERSION", "INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET",
+        "INSTAGRAM_BUSINESS_ACCOUNT_ID", "INSTAGRAM_SCOPED_USER_ID",
+        "INSTAGRAM_ACCESS_TOKEN", "MESSENGER_ACCESS_TOKEN",
+        "FB_PAGE_ACCESS_TOKEN", "WHATSAPP_ACCESS_TOKEN",
+        "META_SYSTEM_USER_TOKEN", "AGENT_CORE_ADMIN_TOKEN",
+        "AGENT_CORE_STATE_SECRET", "SCALIFFY_API_BASE",
+        "YOUCAN_CLIENT_ID", "YOUCAN_CLIENT_SECRET",
+    )
+    desired: dict[str, str] = {k: secrets[k] for k in SYNC_KEYS if secrets.get(k)}
     desired["AGENT_MODEL"] = secrets.get("AGENT_MODEL", "") or MODEL_DEFAULT
     desired["CORE_V2_DB_PATH"] = "/tmp/scaliffy_core_v2.db"
     if "OPENROUTER_API_KEY" not in desired:
