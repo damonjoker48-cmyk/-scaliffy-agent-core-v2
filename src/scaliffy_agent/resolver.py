@@ -23,7 +23,7 @@ def normalize(text: str) -> str:
 # Follow-up signals that continue the active product instead of naming one.
 # A turn matching these AND naming no catalogue product is an ellipsis.
 _ELLIPSIS_RE = re.compile(
-    r"\b(?:hada|hadi|hadak|hadik|hado|هذا|هذه|هاد|هادي|هاداك|هاديك|chhal|ch7al|taman|taman|ثمن|شحال|prix|price|combien|bghit|bghiti|بغيت|ncommande|nkomondi|commande|order|seft|writini|werini|tsawer|swar|صور|صورة|تصويرة|noir|akahal|أسود|kayna?|kayen|كاين|joj|jouj|جوج|wahd|واحد|livraison|توصيل)\b"
+    r"\b(?:hada|hadi|hadak|hadik|hado|هذا|هذه|هاد|هادي|هاداك|هاديك|chhal|ch7al|taman|taman|ثمن|شحال|prix|price|combien|bghit|bghiti|بغيت|ncommande|nkomondi|commande|order|seft|writini|werini|tsawer|swar|صور|صورة|تصويرة|tswira|noir|akahal|أسود|kayna?|kayen|كاين|joj|jouj|جوج|wahd|واحد|livraison|tawsil|twsil|توصيل)\b"
     r"|^[?!.…\s]{1,12}$",
     re.IGNORECASE,
 )

@@ -568,6 +568,18 @@ def test_color_resolver_string_catalogue_and_aliases():
                          catalogue=cat, stored_variant="")["status"] == "missing"
 
 
+def test_resolver_alias_continuity(tmp_path):
+    _fresh_db(tmp_path, "alias.db")
+    client = _client("alias1")
+    client.send("chhal lpack")
+    state = _state.load_state(store_id=TEST_STORE_ID, channel="test",
+                              customer_id="alias1")
+    assert state.active_product_id == "pack-1"
+    follow = client.send("jouj")
+    assert follow.reply.strip()
+    assert follow.luna_call_count == 1
+
+
 def test_photo_inventory_refs_only():
     from scaliffy_agent.core_v2.media import available_media  # noqa: E402
     assert available_media(product_id="pack-1") == ["pack_photo_01", "pack_photo_02"]

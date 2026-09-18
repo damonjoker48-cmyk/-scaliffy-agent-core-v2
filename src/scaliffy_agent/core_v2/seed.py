@@ -73,6 +73,8 @@ def test_catalogue(*, store_id: str = TEST_STORE_ID) -> dict:
         "variants": "noir,abyed",
         "colors": "noir,abyed",
         "available_colors": "noir,abyed",
+        # Deterministic resolver aliases (Latin/Arabizi/Arabic spellings).
+        "aliases": "pack,lpack,el pack,le pack,du pack,الباك,باك",
         # Order fields:
         "order_fields": "name,phone,address,city,quantity,color",
         # Merchant tone:

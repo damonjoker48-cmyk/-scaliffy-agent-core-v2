@@ -311,15 +311,25 @@ class AgentCoreV2:
             reel_status = "no_media"
 
         # Deterministic product resolver (store-scoped, no Luna).
+        # Aliases bridge Latin/Arabizi/Arabic spellings from catalogue data.
         try:
             from scaliffy_agent.resolver import resolve_product as _resolve
+            _pid = str(cat.get("product_id") or "").strip()
+            _aliases: dict[str, str] = {}
+            try:
+                for _part in str(cat.get("aliases") or "").split(","):
+                    _alias = _part.strip()
+                    if _alias and _pid:
+                        _aliases[_alias] = _pid
+            except Exception:
+                _aliases = {}
             resolution = _resolve(
                 store_id=store_id,
                 message_text=message.text,
                 state_product=state.active_product_id,
                 catalogue=cat,
                 turso_rows=[],
-                aliases={},
+                aliases=_aliases,
                 media_present=reel_status not in ("", "no_media"),
             )
         except Exception:
